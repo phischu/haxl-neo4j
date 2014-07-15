@@ -18,6 +18,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Haxl.Neo4j
                        Haxl.Neo4j.Batch
+                       Haxl.Neo4j.Requests
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.6 && <4.7,
