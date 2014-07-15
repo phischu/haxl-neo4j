@@ -20,8 +20,8 @@ import Data.Aeson (
 import Data.Aeson.Types (Parser)
 
 import Data.HashMap.Strict (HashMap)
-import Control.Error (EitherT,runEitherT,left,readErr)
-import Data.Text (Text,append,pack,unpack,isPrefixOf)
+import Control.Error (readErr)
+import Data.Text (Text,append,pack,unpack)
 import qualified  Data.Text as Text (takeWhile,reverse)
 
 import Data.Function (on)
