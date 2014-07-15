@@ -36,6 +36,8 @@ data Neo4jRequest a where
     AllTypedEdges :: Label -> NodeId -> Neo4jRequest [Edge]
     NodeLabels :: NodeId -> Neo4jRequest [Label]
 
+deriving instance Show (Neo4jRequest a)
+deriving instance Eq (Neo4jRequest a)
 deriving instance Typeable1 Neo4jRequest
 
 -- | A neo4j node.

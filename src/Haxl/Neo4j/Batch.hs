@@ -1,4 +1,4 @@
-{-# LANGUAGE StandaloneDeriving,OverloadedStrings,GADTs #-}
+{-# LANGUAGE StandaloneDeriving,OverloadedStrings,GADTs,RankNTypes #-}
 module Haxl.Neo4j.Batch where
 
 import Haxl.Neo4j.Requests (
@@ -30,7 +30,7 @@ import qualified  Data.Text as Text (takeWhile,reverse)
 
 import Data.Function (on)
 
-runBatchRequests :: [Neo4jRequest a] -> Manager -> IO [Value]
+runBatchRequests :: [AnyNeo4jRequest] -> Manager -> IO [Value]
 runBatchRequests neo4jrequests manager = withHTTP request manager handleResponse where
     Just requestUrl = parseUrl "http://localhost:7474/db/data/batch"
     request = requestUrl {
@@ -43,8 +43,10 @@ runBatchRequests neo4jrequests manager = withHTTP request manager handleResponse
         Just (Right responsevalues) <- evalStateT decode (responseBody response)
         return responsevalues
 
-instance ToJSON (Neo4jRequest a) where
-    toJSON (NodeById nodeid) = object [
+data AnyNeo4jRequest = forall a . AnyNeo4jRequest (Neo4jRequest a)
+
+instance ToJSON AnyNeo4jRequest where
+    toJSON (AnyNeo4jRequest (NodeById nodeid)) = object [
         "method" .= ("GET" :: Text),
         "to" .= nodeURI nodeid]
 
