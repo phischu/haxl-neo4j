@@ -1,12 +1,22 @@
 {-# LANGUAGE StandaloneDeriving,OverloadedStrings #-}
 module Haxl.Neo4j.Batch where
 
+import Pipes.HTTP (
+    Manager,withHTTP,stream,
+    parseUrl,Request(method,requestHeaders,requestBody),
+    Response(responseBody))
+import Network.HTTP.Types.Header (hAccept,hContentType)
+
+import Pipes.Aeson (decode)
+import Pipes.Parse (evalStateT)
+import Pipes.Aeson.Unchecked (encode)
+
 import Data.Aeson (
     Value,
-    ToJSON(toJSON),object,(.=),encode,
+    ToJSON(toJSON),object,(.=),
     FromJSON(parseJSON),
     withObject,withText,
-    (.:),eitherDecode)
+    (.:))
 import Data.Aeson.Types (Parser)
 
 import Data.HashMap.Strict (HashMap)
@@ -15,6 +25,19 @@ import Data.Text (Text,append,pack,unpack,isPrefixOf)
 import qualified  Data.Text as Text (takeWhile,reverse)
 
 import Data.Function (on)
+
+runBatchRequests :: [Neo4jRequest] -> Manager -> IO [Value]
+runBatchRequests neo4jrequests manager = withHTTP request manager handleResponse where
+    Just requestUrl = parseUrl "http://localhost:7474/db/data/batch"
+    request = requestUrl {
+        method = "POST",
+        requestHeaders = [
+            (hAccept,"application/json; charset=UTF-8"),
+            (hContentType,"application/json")],
+        requestBody = stream (encode neo4jrequests)}
+    handleResponse response = do
+        Just (Right responsevalues) <- evalStateT decode (responseBody response)
+        return responsevalues
 
 data Neo4jRequest =
     NodeById NodeId |
