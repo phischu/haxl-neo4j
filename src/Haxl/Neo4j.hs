@@ -47,7 +47,7 @@ neo4jFetch (Neo4jState manager) _ _ blockedfetches = SyncFetch (do
 writeResult :: (BlockedFetch Neo4jRequest,Value) -> IO ()
 writeResult (BlockedFetch neo4request resultvar,value) = case neo4request of
     NodeById _ -> do
-        let Success result = fromJSON value :: Result Node
+        let Success result = fromJSON value
         putSuccess resultvar result
 
 data HasFromJSON a = HasFromJSON a
