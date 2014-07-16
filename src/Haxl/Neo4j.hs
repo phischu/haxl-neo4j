@@ -10,6 +10,8 @@ import Haxl.Neo4j.Requests (
 
 import Pipes.HTTP (Manager,withManager,defaultManagerSettings)
 
+import Data.Aeson (fromJSON,Result(Success),FromJSON,Value)
+
 import Haxl.Prelude
 
 import Haxl.Core
@@ -40,10 +42,15 @@ neo4jFetch :: State Neo4jRequest -> Flags -> u -> [BlockedFetch Neo4jRequest] ->
 neo4jFetch (Neo4jState manager) _ _ blockedfetches = SyncFetch (do
     let neo4jrequests = map (\(BlockedFetch neo4jrequest _) -> AnyNeo4jRequest neo4jrequest) blockedfetches
     values <- runBatchRequests neo4jrequests manager
-    return undefined)
+    forM_ (zip blockedfetches values) writeResult)
 
-actuallyFetch :: Neo4jRequest a -> IO (IO (Either SomeException a))
-actuallyFetch (NodeById i) = return (return (Right undefined))
+writeResult :: (BlockedFetch Neo4jRequest,Value) -> IO ()
+writeResult (BlockedFetch neo4request resultvar,value) = case neo4request of
+    NodeById _ -> do
+        let Success result = fromJSON value :: Result Node
+        putSuccess resultvar result
+
+data HasFromJSON a = HasFromJSON a
 
 gather :: Neo4j a -> Neo4j [a]
 gather = Neo4j . (fmap (:[])) . unNeo4j
