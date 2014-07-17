@@ -1,18 +1,13 @@
-{-# LANGUAGE StandaloneDeriving,OverloadedStrings,GADTs,DeriveDataTypeable #-}
-module Haxl.Neo4j.Requests where
+module Haxl.Neo4j.Internal where
 
-import Data.Aeson (
-    Value,
-    ToJSON(toJSON),object,(.=),
-    FromJSON(parseJSON),
-    withObject,withText,
-    (.:))
-import Data.Aeson.Types (Parser)
+import Haxl.Neo4j.Batch (runBatchRequests,AnyNeo4jRequest(..))
+import Haxl.Neo4j.Requests (
+    Neo4jRequest(..),
+    NodeId,Node)
 
-import Data.HashMap.Strict (HashMap)
-import Control.Error (readErr)
-import Data.Text (Text,append,pack,unpack)
-import qualified  Data.Text as Text (takeWhile,reverse)
+import Pipes.HTTP (Manager,withManager,defaultManagerSettings)
+
+import Data.Aeson (fromJSON,Result(Success),FromJSON,Value)
 
 import Haxl.Prelude
 
@@ -22,6 +17,36 @@ import Data.Hashable
 import Control.Exception
 
 import Data.Function (on)
+
+
+
+runNeo4j :: Neo4j a -> IO [a]
+runNeo4j neo4j = do
+    withManager defaultManagerSettings (\manager -> do
+        environment <- initEnv (stateSet (Neo4jState manager) stateEmpty) ()
+        runHaxl environment (unNeo4j neo4j))
+
+nodeById :: NodeId -> Neo4j Node
+nodeById = Neo4j . fmap (:[]) . dataFetch . NodeById
+
+
+
+type Haxl = GenHaxl ()
+
+instance DataSource u Neo4jRequest where
+    fetch = neo4jFetch
+
+instance Show1 Neo4jRequest where
+    show1 = show
+
+instance DataSourceName Neo4jRequest where
+    dataSourceName _ = "Neo4j"
+
+instance StateKey Neo4jRequest where
+    data State Neo4jRequest = Neo4jState Manager
+
+instance Hashable (Neo4jRequest a) where
+    hashWithSalt s (NodeById i) = hashWithSalt s (0::Int,i)
 
 data Neo4jRequest a where
     NodeById :: NodeId -> Neo4jRequest Node
@@ -109,3 +134,44 @@ parseSelfId = withText "URI" (\s -> case idSlug s of
 idSlug :: Text -> Either String Integer
 idSlug uri = readErr ("Reading URI slug failed: " ++ uriSlug) uriSlug where
     uriSlug = unpack (Text.reverse (Text.takeWhile (/= '/') (Text.reverse uri)))
+
+neo4jFetch :: State Neo4jRequest -> Flags -> u -> [BlockedFetch Neo4jRequest] -> PerformFetch
+neo4jFetch (Neo4jState manager) _ _ blockedfetches = SyncFetch (do
+    let neo4jrequests = map (\(BlockedFetch neo4jrequest _) -> AnyNeo4jRequest neo4jrequest) blockedfetches
+    values <- runBatchRequests neo4jrequests manager
+    forM_ (zip blockedfetches values) writeResult)
+
+writeResult :: (BlockedFetch Neo4jRequest,Value) -> IO ()
+writeResult (BlockedFetch neo4request resultvar,value) = case neo4request of
+    NodeById _ -> do
+        let Success result = fromJSON value
+        putSuccess resultvar result
+
+runBatchRequests :: [AnyNeo4jRequest] -> Manager -> IO [Value]
+runBatchRequests neo4jrequests manager = withHTTP request manager handleResponse where
+    Just requestUrl = parseUrl "http://localhost:7474/db/data/batch"
+    request = requestUrl {
+        method = "POST",
+        requestHeaders = [
+            (hAccept,"application/json; charset=UTF-8"),
+            (hContentType,"application/json")],
+        requestBody = stream (encode neo4jrequests)}
+    handleResponse response = do
+        Just (Right responsevalues) <- evalStateT decode (responseBody response)
+        return responsevalues
+
+data AnyNeo4jRequest = forall a . AnyNeo4jRequest (Neo4jRequest a)
+
+instance ToJSON AnyNeo4jRequest where
+    toJSON (AnyNeo4jRequest (NodeById nodeid)) = object [
+        "method" .= ("GET" :: Text),
+        "to" .= nodeURI nodeid]
+
+-- | Find a node's URI.
+nodeURI :: NodeId -> Text
+nodeURI nodeid = "/node/" `append` (pack (show nodeid))
+
+-- | Find an edge's URI.
+edgeURI :: EdgeId -> Text
+edgeURI edgeid = "/relationship/" `append` (pack (show edgeid))
+

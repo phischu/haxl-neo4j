@@ -50,8 +50,6 @@ writeResult (BlockedFetch neo4request resultvar,value) = case neo4request of
         let Success result = fromJSON value
         putSuccess resultvar result
 
-data HasFromJSON a = HasFromJSON a
-
 gather :: Neo4j a -> Neo4j [a]
 gather = Neo4j . (fmap (:[])) . unNeo4j
 
