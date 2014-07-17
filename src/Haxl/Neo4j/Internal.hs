@@ -1,52 +1,58 @@
+{-# LANGUAGE ExistentialQuantification, OverloadedStrings,
+    StandaloneDeriving, GADTs, FlexibleInstances, MultiParamTypeClasses,
+    TypeFamilies, DeriveDataTypeable #-}
+
 module Haxl.Neo4j.Internal where
 
-import Haxl.Neo4j.Batch (runBatchRequests,AnyNeo4jRequest(..))
-import Haxl.Neo4j.Requests (
-    Neo4jRequest(..),
-    NodeId,Node)
+import Haxl.Core (
+    DataSource(fetch),DataSourceName(dataSourceName),StateKey,State,
+    Flags,BlockedFetch(BlockedFetch),Show1(show1),
+    GenHaxl,dataFetch,PerformFetch(SyncFetch),putSuccess)
+import Haxl.Prelude (forM_)
 
-import Pipes.HTTP (Manager,withManager,defaultManagerSettings)
+import Pipes.HTTP (
+    Manager,withManager,defaultManagerSettings,
+    withHTTP,parseUrl,Request(method,requestHeaders,requestBody),
+    stream,responseBody)
+import Network.HTTP.Types.Header (
+    hAccept,hContentType)
 
-import Data.Aeson (fromJSON,Result(Success),FromJSON,Value)
+import Data.Aeson (
+    Value,
+    FromJSON(parseJSON),fromJSON,Result(Success),
+    withObject,withText,(.:),
+    ToJSON(toJSON),object,(.=))
+import Data.Aeson.Types (
+    Parser)
 
-import Haxl.Prelude
+import Pipes.Aeson.Unchecked (encode,decode)
+import Pipes.Parse (evalStateT)
 
-import Haxl.Core
-import Data.Typeable
-import Data.Hashable
-import Control.Exception
+import Control.Error (readErr)
+
+import Data.Typeable (Typeable,Typeable1)
+import Data.Hashable (Hashable(hashWithSalt))
+
+import Data.HashMap.Lazy (HashMap)
+
+import Data.Text (Text)
+import qualified Data.Text as Text (
+    unpack,reverse,takeWhile,append,pack)
 
 import Data.Function (on)
 
 
 
-runNeo4j :: Neo4j a -> IO [a]
-runNeo4j neo4j = do
-    withManager defaultManagerSettings (\manager -> do
-        environment <- initEnv (stateSet (Neo4jState manager) stateEmpty) ()
-        runHaxl environment (unNeo4j neo4j))
 
-nodeById :: NodeId -> Neo4j Node
-nodeById = Neo4j . fmap (:[]) . dataFetch . NodeById
+nodeById :: NodeId -> Haxl Node
+nodeById = dataFetch . NodeById
 
 
 
 type Haxl = GenHaxl ()
 
-instance DataSource u Neo4jRequest where
-    fetch = neo4jFetch
 
-instance Show1 Neo4jRequest where
-    show1 = show
-
-instance DataSourceName Neo4jRequest where
-    dataSourceName _ = "Neo4j"
-
-instance StateKey Neo4jRequest where
-    data State Neo4jRequest = Neo4jState Manager
-
-instance Hashable (Neo4jRequest a) where
-    hashWithSalt s (NodeById i) = hashWithSalt s (0::Int,i)
+-- Neo4j request data type
 
 data Neo4jRequest a where
     NodeById :: NodeId -> Neo4jRequest Node
@@ -65,7 +71,32 @@ deriving instance Show (Neo4jRequest a)
 deriving instance Eq (Neo4jRequest a)
 deriving instance Typeable1 Neo4jRequest
 
--- | A neo4j node.
+instance DataSource u Neo4jRequest where
+    fetch = neo4jFetch
+
+instance Show1 Neo4jRequest where
+    show1 = show
+
+instance DataSourceName Neo4jRequest where
+    dataSourceName _ = "Neo4j"
+
+instance StateKey Neo4jRequest where
+    data State Neo4jRequest = Neo4jState Manager
+
+instance Hashable (Neo4jRequest a) where
+    hashWithSalt s (NodeById i) = hashWithSalt s (0::Int,i)
+
+
+-- Neo4j result data types
+
+type NodeId = Integer
+
+type EdgeId = Integer
+
+type Properties = HashMap Text Value
+
+type Label = Text
+
 data Node = Node {
     nodeId :: NodeId,
     nodeData :: Properties}
@@ -85,8 +116,6 @@ instance FromJSON Node where
         nodedata <- o .: "data"
         return (Node selfid nodedata))
 
-
--- | A neo4j edge.
 data Edge = Edge {
     edgeId :: EdgeId,
     edgeStart :: NodeId,
@@ -112,28 +141,17 @@ instance FromJSON Edge where
         edgedata <- o .: "data"
         return (Edge selfid startid endid label edgedata))
 
--- | The properties of either a node or an edge. A map from 'Text' keys to
---   json values.
-type Properties = HashMap Text Value
-
--- | A label of either a node or an edge.
-type Label = Text
-
-type NodeId = Integer
-
-type EdgeId = Integer
-
--- | Given a json value that should represent a URI parse the last part of
---   it as a number.
 parseSelfId :: Value -> Parser Integer
 parseSelfId = withText "URI" (\s -> case idSlug s of
     Left errormessage -> fail errormessage
     Right idslug      -> return idslug)
 
--- | Extract the last part of the given URI.
 idSlug :: Text -> Either String Integer
 idSlug uri = readErr ("Reading URI slug failed: " ++ uriSlug) uriSlug where
-    uriSlug = unpack (Text.reverse (Text.takeWhile (/= '/') (Text.reverse uri)))
+    uriSlug = Text.unpack (Text.reverse (Text.takeWhile (/= '/') (Text.reverse uri)))
+
+
+-- | Actually execute neo4j requests.
 
 neo4jFetch :: State Neo4jRequest -> Flags -> u -> [BlockedFetch Neo4jRequest] -> PerformFetch
 neo4jFetch (Neo4jState manager) _ _ blockedfetches = SyncFetch (do
@@ -141,11 +159,22 @@ neo4jFetch (Neo4jState manager) _ _ blockedfetches = SyncFetch (do
     values <- runBatchRequests neo4jrequests manager
     forM_ (zip blockedfetches values) writeResult)
 
-writeResult :: (BlockedFetch Neo4jRequest,Value) -> IO ()
-writeResult (BlockedFetch neo4request resultvar,value) = case neo4request of
-    NodeById _ -> do
-        let Success result = fromJSON value
-        putSuccess resultvar result
+
+data AnyNeo4jRequest = forall a . AnyNeo4jRequest (Neo4jRequest a)
+
+instance ToJSON AnyNeo4jRequest where
+    toJSON (AnyNeo4jRequest (NodeById nodeid)) = object [
+        "method" .= ("GET" :: Text),
+        "to" .= nodeURI nodeid]
+
+-- | Find a node's URI.
+nodeURI :: NodeId -> Text
+nodeURI nodeid = "/node/" `Text.append` (Text.pack (show nodeid))
+
+-- | Find an edge's URI.
+edgeURI :: EdgeId -> Text
+edgeURI edgeid = "/relationship/" `Text.append` (Text.pack (show edgeid))
+
 
 runBatchRequests :: [AnyNeo4jRequest] -> Manager -> IO [Value]
 runBatchRequests neo4jrequests manager = withHTTP request manager handleResponse where
@@ -160,18 +189,11 @@ runBatchRequests neo4jrequests manager = withHTTP request manager handleResponse
         Just (Right responsevalues) <- evalStateT decode (responseBody response)
         return responsevalues
 
-data AnyNeo4jRequest = forall a . AnyNeo4jRequest (Neo4jRequest a)
+writeResult :: (BlockedFetch Neo4jRequest,Value) -> IO ()
+writeResult (BlockedFetch neo4request resultvar,value) = case neo4request of
+    NodeById _ -> do
+        let Success result = fromJSON value
+        putSuccess resultvar result
 
-instance ToJSON AnyNeo4jRequest where
-    toJSON (AnyNeo4jRequest (NodeById nodeid)) = object [
-        "method" .= ("GET" :: Text),
-        "to" .= nodeURI nodeid]
 
--- | Find a node's URI.
-nodeURI :: NodeId -> Text
-nodeURI nodeid = "/node/" `append` (pack (show nodeid))
-
--- | Find an edge's URI.
-edgeURI :: EdgeId -> Text
-edgeURI edgeid = "/relationship/" `append` (pack (show edgeid))
 
