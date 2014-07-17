@@ -7,7 +7,8 @@ module Haxl.Neo4j.Internal where
 import Haxl.Core (
     DataSource(fetch),DataSourceName(dataSourceName),StateKey,State,
     Flags,BlockedFetch(BlockedFetch),Show1(show1),
-    GenHaxl,dataFetch,PerformFetch(SyncFetch),putSuccess)
+    GenHaxl,dataFetch,PerformFetch(SyncFetch),putSuccess,
+    initEnv,stateSet,stateEmpty,runHaxl)
 import Haxl.Prelude (forM_)
 
 import Pipes.HTTP (
@@ -41,6 +42,11 @@ import qualified Data.Text as Text (
 
 import Data.Function (on)
 
+
+runHaxlNeo4j :: Haxl a -> IO a
+runHaxlNeo4j neo4j = withManager defaultManagerSettings (\manager -> do
+    environment <- initEnv (stateSet (Neo4jState manager) stateEmpty) ()
+    runHaxl environment neo4j)
 
 
 
