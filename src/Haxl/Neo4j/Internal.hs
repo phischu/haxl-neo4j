@@ -20,6 +20,8 @@ import Network.HTTP.Types.Header (
     hAccept,hContentType)
 import Network.HTTP.Types.Status (
     ok200)
+import Network.HTTP.Types.URI (
+    encodePathSegments)
 
 import Data.Aeson (
     Value,
@@ -42,11 +44,14 @@ import Data.HashMap.Lazy (HashMap)
 
 import Data.Text (Text)
 import qualified Data.Text as Text (
-    unpack,reverse,takeWhile,append,pack)
+    unpack,reverse,takeWhile,pack)
 import qualified Data.Text.Encoding as Text (
     decodeUtf8)
 import qualified Data.ByteString as ByteString (
     concat)
+import Blaze.ByteString.Builder (Builder)
+import qualified Blaze.ByteString.Builder as Builder (
+    toByteString)
 
 import Data.Function (on)
 
@@ -205,17 +210,33 @@ writeFailure message (BlockedFetch _ resultvar) =
 data SomeNeo4jRequest = forall a . SomeNeo4jRequest (Neo4jRequest a)
 
 instance ToJSON SomeNeo4jRequest where
-    toJSON (SomeNeo4jRequest (NodeById nodeid)) = object [
+    toJSON (SomeNeo4jRequest neo4jrequest) = object [
         "method" .= ("GET" :: Text),
-        "to" .= nodeURI nodeid]
+        "to" .= Text.decodeUtf8 (Builder.toByteString (neo4jRequestUri neo4jrequest))]
 
--- | Find a node's URI.
-nodeURI :: NodeId -> Text
-nodeURI nodeid = "/node/" `Text.append` (Text.pack (show nodeid))
-
--- | Find an edge's URI.
-edgeURI :: EdgeId -> Text
-edgeURI edgeid = "/relationship/" `Text.append` (Text.pack (show edgeid))
+neo4jRequestUri :: Neo4jRequest a -> Builder
+neo4jRequestUri (NodeById nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid)]
+neo4jRequestUri (NodesByLabel label) =
+    encodePathSegments ["label",label,"nodes"]
+neo4jRequestUri (NodesByLabelAndProperty _ _ _) =
+    error "unsupported: NodesByLabelAndProperty"
+neo4jRequestUri (EdgeById edgeid) =
+    encodePathSegments ["relationship",Text.pack (show edgeid)]
+neo4jRequestUri (IncomingEdges nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"relationships","in"]
+neo4jRequestUri (OutgoingEdges nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"relationships","out"]
+neo4jRequestUri (AllEdges nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"relationships","all"]
+neo4jRequestUri (IncomingTypedEdges label nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"relationships","in",label]
+neo4jRequestUri (OutgoingTypedEdges label nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"relationships","out",label]
+neo4jRequestUri (AllTypedEdges label nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"relationships","all",label]
+neo4jRequestUri (NodeLabels nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"labels"]
 
 
 data SomeNeo4jResponse = SomeNeo4jResponse Value
