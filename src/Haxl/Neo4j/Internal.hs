@@ -43,19 +43,17 @@ import qualified Data.Text as Text (
 import Data.Function (on)
 
 
+
+type Haxl = GenHaxl ()
+
 runHaxlNeo4j :: Haxl a -> IO a
 runHaxlNeo4j neo4j = withManager defaultManagerSettings (\manager -> do
     environment <- initEnv (stateSet (Neo4jState manager) stateEmpty) ()
     runHaxl environment neo4j)
 
 
-
 nodeById :: NodeId -> Haxl Node
 nodeById = dataFetch . NodeById
-
-
-
-type Haxl = GenHaxl ()
 
 
 -- Neo4j request data type
@@ -161,15 +159,15 @@ idSlug uri = readErr ("Reading URI slug failed: " ++ uriSlug) uriSlug where
 
 neo4jFetch :: State Neo4jRequest -> Flags -> u -> [BlockedFetch Neo4jRequest] -> PerformFetch
 neo4jFetch (Neo4jState manager) _ _ blockedfetches = SyncFetch (do
-    let neo4jrequests = map (\(BlockedFetch neo4jrequest _) -> AnyNeo4jRequest neo4jrequest) blockedfetches
-    values <- runBatchRequests neo4jrequests manager
+    let someneo4jrequests = map (\(BlockedFetch neo4jrequest _) -> SomeNeo4jRequest neo4jrequest) blockedfetches
+    values <- runBatchRequests someneo4jrequests manager
     forM_ (zip blockedfetches values) writeResult)
 
 
-data AnyNeo4jRequest = forall a . AnyNeo4jRequest (Neo4jRequest a)
+data SomeNeo4jRequest = forall a . SomeNeo4jRequest (Neo4jRequest a)
 
-instance ToJSON AnyNeo4jRequest where
-    toJSON (AnyNeo4jRequest (NodeById nodeid)) = object [
+instance ToJSON SomeNeo4jRequest where
+    toJSON (SomeNeo4jRequest (NodeById nodeid)) = object [
         "method" .= ("GET" :: Text),
         "to" .= nodeURI nodeid]
 
@@ -182,15 +180,15 @@ edgeURI :: EdgeId -> Text
 edgeURI edgeid = "/relationship/" `Text.append` (Text.pack (show edgeid))
 
 
-runBatchRequests :: [AnyNeo4jRequest] -> Manager -> IO [Value]
-runBatchRequests neo4jrequests manager = withHTTP request manager handleResponse where
+runBatchRequests :: [SomeNeo4jRequest] -> Manager -> IO [Value]
+runBatchRequests someneo4jrequests manager = withHTTP request manager handleResponse where
     Just requestUrl = parseUrl "http://localhost:7474/db/data/batch"
     request = requestUrl {
         method = "POST",
         requestHeaders = [
             (hAccept,"application/json; charset=UTF-8"),
             (hContentType,"application/json")],
-        requestBody = stream (encode neo4jrequests)}
+        requestBody = stream (encode someneo4jrequests)}
     handleResponse response = do
         Just (Right responsevalues) <- evalStateT decode (responseBody response)
         return responsevalues
