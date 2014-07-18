@@ -68,6 +68,33 @@ runHaxlNeo4j neo4j = withManager defaultManagerSettings (\manager -> do
 nodeById :: NodeId -> Haxl Node
 nodeById = dataFetch . NodeById
 
+nodesByLabel :: Label -> Haxl [Node]
+nodesByLabel = dataFetch . NodesByLabel
+
+edgeById :: EdgeId -> Haxl Edge
+edgeById = dataFetch . EdgeById
+
+incomingEdges :: NodeId -> Haxl [Edge]
+incomingEdges = dataFetch . IncomingEdges
+
+outgoingEdges :: NodeId -> Haxl [Edge]
+outgoingEdges = dataFetch . OutgoingEdges
+
+allEdges :: NodeId -> Haxl [Edge]
+allEdges = dataFetch . AllEdges
+
+incomingTypedEdges :: Label -> NodeId -> Haxl [Edge]
+incomingTypedEdges = (dataFetch .) . IncomingTypedEdges
+
+outgoingTypedEdges :: Label -> NodeId -> Haxl [Edge]
+outgoingTypedEdges = (dataFetch .) . OutgoingTypedEdges
+
+allTypedEdges :: Label -> NodeId -> Haxl [Edge]
+allTypedEdges = (dataFetch .) . AllTypedEdges
+
+nodeLabels :: NodeId -> Haxl [Label]
+nodeLabels = dataFetch . NodeLabels
+
 
 -- Neo4j request data type
 
