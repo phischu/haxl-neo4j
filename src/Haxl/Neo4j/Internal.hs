@@ -74,23 +74,11 @@ nodesByLabel = dataFetch . NodesByLabel
 edgeById :: EdgeId -> Haxl Edge
 edgeById = dataFetch . EdgeById
 
-incomingEdges :: NodeId -> Haxl [Edge]
-incomingEdges = dataFetch . IncomingEdges
+edges :: Direction -> NodeId -> Haxl [Edge]
+edges direction = dataFetch . Edges direction
 
-outgoingEdges :: NodeId -> Haxl [Edge]
-outgoingEdges = dataFetch . OutgoingEdges
-
-allEdges :: NodeId -> Haxl [Edge]
-allEdges = dataFetch . AllEdges
-
-incomingTypedEdges :: Label -> NodeId -> Haxl [Edge]
-incomingTypedEdges = (dataFetch .) . IncomingTypedEdges
-
-outgoingTypedEdges :: Label -> NodeId -> Haxl [Edge]
-outgoingTypedEdges = (dataFetch .) . OutgoingTypedEdges
-
-allTypedEdges :: Label -> NodeId -> Haxl [Edge]
-allTypedEdges = (dataFetch .) . AllTypedEdges
+typedEdges :: Direction -> Label -> NodeId -> Haxl [Edge]
+typedEdges direction label = dataFetch . TypedEdges direction label
 
 nodeLabels :: NodeId -> Haxl [Label]
 nodeLabels = dataFetch . NodeLabels
@@ -98,17 +86,19 @@ nodeLabels = dataFetch . NodeLabels
 
 -- Neo4j request data type
 
+data Direction = In | Out | All
+
+deriving instance Show Direction
+deriving instance Eq Direction
+deriving instance Typeable Direction
+
 data Neo4jRequest a where
     NodeById :: NodeId -> Neo4jRequest Node
     NodesByLabel :: Label -> Neo4jRequest [Node]
     NodesByLabelAndProperty :: Label -> Text -> Value -> Neo4jRequest [Node]
     EdgeById :: EdgeId -> Neo4jRequest Edge
-    IncomingEdges :: NodeId -> Neo4jRequest [Edge]
-    OutgoingEdges :: NodeId -> Neo4jRequest [Edge]
-    AllEdges :: NodeId -> Neo4jRequest [Edge]
-    IncomingTypedEdges :: Label -> NodeId -> Neo4jRequest [Edge]
-    OutgoingTypedEdges :: Label -> NodeId -> Neo4jRequest [Edge]
-    AllTypedEdges :: Label -> NodeId -> Neo4jRequest [Edge]
+    Edges :: Direction -> NodeId -> Neo4jRequest [Edge]
+    TypedEdges :: Direction -> Label -> NodeId -> Neo4jRequest [Edge]
     NodeLabels :: NodeId -> Neo4jRequest [Label]
 
 deriving instance Show (Neo4jRequest a)
@@ -143,7 +133,7 @@ type Label = Text
 
 data Node = Node {
     nodeId :: NodeId,
-    nodeData :: Properties}
+    nodeProperties :: Properties}
 
 deriving instance Show Node
 deriving instance Typeable Node
@@ -162,10 +152,10 @@ instance FromJSON Node where
 
 data Edge = Edge {
     edgeId :: EdgeId,
-    edgeStart :: NodeId,
-    edgeEnd :: NodeId,
-    edgeType :: Label,
-    edgeData :: Properties}
+    edgeSource :: NodeId,
+    edgeTarget :: NodeId,
+    edgeLabel :: Label,
+    edgeProperties :: Properties}
 
 deriving instance Show Edge
 deriving instance Typeable Edge
@@ -250,21 +240,17 @@ neo4jRequestUri (NodesByLabelAndProperty _ _ _) =
     error "unsupported: NodesByLabelAndProperty"
 neo4jRequestUri (EdgeById edgeid) =
     encodePathSegments ["relationship",Text.pack (show edgeid)]
-neo4jRequestUri (IncomingEdges nodeid) =
-    encodePathSegments ["node",Text.pack (show nodeid),"relationships","in"]
-neo4jRequestUri (OutgoingEdges nodeid) =
-    encodePathSegments ["node",Text.pack (show nodeid),"relationships","out"]
-neo4jRequestUri (AllEdges nodeid) =
-    encodePathSegments ["node",Text.pack (show nodeid),"relationships","all"]
-neo4jRequestUri (IncomingTypedEdges label nodeid) =
-    encodePathSegments ["node",Text.pack (show nodeid),"relationships","in",label]
-neo4jRequestUri (OutgoingTypedEdges label nodeid) =
-    encodePathSegments ["node",Text.pack (show nodeid),"relationships","out",label]
-neo4jRequestUri (AllTypedEdges label nodeid) =
-    encodePathSegments ["node",Text.pack (show nodeid),"relationships","all",label]
+neo4jRequestUri (Edges direction nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"relationships",directionText direction]
+neo4jRequestUri (TypedEdges direction label nodeid) =
+    encodePathSegments ["node",Text.pack (show nodeid),"relationships",directionText direction,label]
 neo4jRequestUri (NodeLabels nodeid) =
     encodePathSegments ["node",Text.pack (show nodeid),"labels"]
 
+directionText :: Direction -> Text
+directionText In  = "in"
+directionText Out = "out"
+directionText All = "all"
 
 data SomeNeo4jResponse = SomeNeo4jResponse Value
 
