@@ -1,8 +1,9 @@
+{-# LANGUAGE DeriveFunctor,OverloadedStrings #-}
 module Haxl.Neo4j where
 
 import Haxl.Neo4j.Internal (
     runHaxlNeo4j,Haxl,
-    NodeId,Node,EdgeId,Edge,Label,Properties,Direction)
+    NodeId,Node,EdgeId,Edge,Label,Properties,Direction(All))
 import qualified Haxl.Neo4j.Internal as Internal (
     nodeById,nodesByLabel,nodeLabels,nodeId,nodeProperties,
     edges,typedEdges,edgeById,
@@ -14,8 +15,10 @@ import Data.Text (Text)
 import qualified Data.HashMap.Lazy as HashMap (lookup)
 
 import Control.Monad ((>=>))
+import Data.Traversable (traverse)
 
 newtype Neo4j a = Neo4j { unNeo4j :: Haxl [a] }
+    deriving (Functor)
 
 runNeo4j :: Neo4j a -> IO [a]
 runNeo4j = runHaxlNeo4j . unNeo4j
@@ -68,7 +71,14 @@ edgeTarget :: Edge -> Neo4j Node
 edgeTarget = nodeById . Internal.edgeTarget
 
 
+instance Monad Neo4j where
+    return = Neo4j . return . (:[])
+    ma >>= amb = Neo4j (do
+        as <- unNeo4j ma
+        bss <- traverse (unNeo4j . amb) as
+        return (concat bss))
+
 
 main :: IO ()
-main = runNeo4j (nodeById 5) >>= print
+main = runNeo4j (nodeById 5 >>= edges All) >>= print
 

@@ -214,10 +214,18 @@ runBatchRequests someneo4jrequests manager = withHTTP request manager handleResp
                 return (Left (Text.decodeUtf8 (ByteString.concat responsechunks)))
 
 writeResult :: (BlockedFetch Neo4jRequest,SomeNeo4jResponse) -> IO ()
-writeResult (BlockedFetch neo4request resultvar,SomeNeo4jResponse value) = case neo4request of
-    NodeById _ -> case fromJSON value of
-        Success result -> putSuccess resultvar result
-        Error message  -> putFailure resultvar (JSONError (Text.pack message))
+writeResult (BlockedFetch neo4request resultvar,SomeNeo4jResponse value) = do
+    let result = case neo4request of
+            NodeById _ -> fromJSON value
+            NodesByLabel _ -> fromJSON value
+            NodesByLabelAndProperty _ _ _-> fromJSON value
+            EdgeById _ -> fromJSON value
+            Edges _ _ -> fromJSON value
+            TypedEdges _ _ _ -> fromJSON value
+            NodeLabels _ -> fromJSON value
+    case result of
+        Success success -> putSuccess resultvar success
+        Error message -> putFailure resultvar (JSONError (Text.pack message))
 
 writeFailure :: Text -> BlockedFetch Neo4jRequest -> IO ()
 writeFailure message (BlockedFetch _ resultvar) =
