@@ -8,6 +8,7 @@ import Haxl.Core (
     DataSource(fetch),DataSourceName(dataSourceName),StateKey,State,
     Flags,BlockedFetch(BlockedFetch),Show1(show1),
     GenHaxl,dataFetch,PerformFetch(SyncFetch),putSuccess,
+    JSONError(JSONError),putFailure,
     initEnv,stateSet,stateEmpty,runHaxl)
 import Haxl.Prelude (forM_)
 
@@ -20,7 +21,7 @@ import Network.HTTP.Types.Header (
 
 import Data.Aeson (
     Value,
-    FromJSON(parseJSON),fromJSON,Result(Success),
+    FromJSON(parseJSON),fromJSON,Result(Success,Error),
     withObject,withText,(.:),
     ToJSON(toJSON),object,(.=))
 import Data.Aeson.Types (
@@ -195,9 +196,7 @@ runBatchRequests someneo4jrequests manager = withHTTP request manager handleResp
 
 writeResult :: (BlockedFetch Neo4jRequest,Value) -> IO ()
 writeResult (BlockedFetch neo4request resultvar,value) = case neo4request of
-    NodeById _ -> do
-        let Success result = fromJSON value
-        putSuccess resultvar result
-
-
+    NodeById _ -> case fromJSON value of
+        Success result -> putSuccess resultvar result
+        Error message  -> putFailure resultvar (JSONError (Text.pack message))
 
