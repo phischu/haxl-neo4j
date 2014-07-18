@@ -8,16 +8,18 @@ import Haxl.Core (
     DataSource(fetch),DataSourceName(dataSourceName),StateKey,State,
     Flags,BlockedFetch(BlockedFetch),Show1(show1),
     GenHaxl,dataFetch,PerformFetch(SyncFetch),putSuccess,
-    JSONError(JSONError),putFailure,
+    JSONError(JSONError),NotFound(NotFound),putFailure,
     initEnv,stateSet,stateEmpty,runHaxl)
 import Haxl.Prelude (forM_)
 
 import Pipes.HTTP (
     Manager,withManager,defaultManagerSettings,
     withHTTP,parseUrl,Request(method,requestHeaders,requestBody),
-    stream,responseBody)
+    stream,responseBody,responseStatus)
 import Network.HTTP.Types.Header (
     hAccept,hContentType)
+import Network.HTTP.Types.Status (
+    ok200)
 
 import Data.Aeson (
     Value,
@@ -27,6 +29,7 @@ import Data.Aeson (
 import Data.Aeson.Types (
     Parser)
 
+import Pipes.Prelude (toListM)
 import Pipes.Aeson.Unchecked (encode,decode)
 import Pipes.Parse (evalStateT)
 
@@ -40,6 +43,10 @@ import Data.HashMap.Lazy (HashMap)
 import Data.Text (Text)
 import qualified Data.Text as Text (
     unpack,reverse,takeWhile,append,pack)
+import qualified Data.Text.Encoding as Text (
+    decodeUtf8)
+import qualified Data.ByteString as ByteString (
+    concat)
 
 import Data.Function (on)
 
@@ -161,8 +168,38 @@ idSlug uri = readErr ("Reading URI slug failed: " ++ uriSlug) uriSlug where
 neo4jFetch :: State Neo4jRequest -> Flags -> u -> [BlockedFetch Neo4jRequest] -> PerformFetch
 neo4jFetch (Neo4jState manager) _ _ blockedfetches = SyncFetch (do
     let someneo4jrequests = map (\(BlockedFetch neo4jrequest _) -> SomeNeo4jRequest neo4jrequest) blockedfetches
-    values <- runBatchRequests someneo4jrequests manager
-    forM_ (zip blockedfetches values) writeResult)
+    result <- runBatchRequests someneo4jrequests manager
+    case result of
+        Left message -> forM_ blockedfetches (writeFailure message)
+        Right responses -> forM_ (zip blockedfetches responses) writeResult)
+
+runBatchRequests :: [SomeNeo4jRequest] -> Manager -> IO (Either Text [SomeNeo4jResponse])
+runBatchRequests someneo4jrequests manager = withHTTP request manager handleResponse where
+    Just requestUrl = parseUrl "http://localhost:7474/db/data/batch"
+    request = requestUrl {
+        method = "POST",
+        requestHeaders = [
+            (hAccept,"application/json; charset=UTF-8"),
+            (hContentType,"application/json")],
+        requestBody = stream (encode someneo4jrequests)}
+    handleResponse response = do
+        if responseStatus response == ok200
+            then do
+                Just (Right responsevalues) <- evalStateT decode (responseBody response)
+                return (Right responsevalues)
+            else do
+                responsechunks <- toListM (responseBody response)
+                return (Left (Text.decodeUtf8 (ByteString.concat responsechunks)))
+
+writeResult :: (BlockedFetch Neo4jRequest,SomeNeo4jResponse) -> IO ()
+writeResult (BlockedFetch neo4request resultvar,SomeNeo4jResponse value) = case neo4request of
+    NodeById _ -> case fromJSON value of
+        Success result -> putSuccess resultvar result
+        Error message  -> putFailure resultvar (JSONError (Text.pack message))
+
+writeFailure :: Text -> BlockedFetch Neo4jRequest -> IO ()
+writeFailure message (BlockedFetch _ resultvar) =
+    putFailure resultvar (NotFound message)
 
 
 data SomeNeo4jRequest = forall a . SomeNeo4jRequest (Neo4jRequest a)
@@ -181,22 +218,9 @@ edgeURI :: EdgeId -> Text
 edgeURI edgeid = "/relationship/" `Text.append` (Text.pack (show edgeid))
 
 
-runBatchRequests :: [SomeNeo4jRequest] -> Manager -> IO [Value]
-runBatchRequests someneo4jrequests manager = withHTTP request manager handleResponse where
-    Just requestUrl = parseUrl "http://localhost:7474/db/data/batch"
-    request = requestUrl {
-        method = "POST",
-        requestHeaders = [
-            (hAccept,"application/json; charset=UTF-8"),
-            (hContentType,"application/json")],
-        requestBody = stream (encode someneo4jrequests)}
-    handleResponse response = do
-        Just (Right responsevalues) <- evalStateT decode (responseBody response)
-        return responsevalues
+data SomeNeo4jResponse = SomeNeo4jResponse Value
 
-writeResult :: (BlockedFetch Neo4jRequest,Value) -> IO ()
-writeResult (BlockedFetch neo4request resultvar,value) = case neo4request of
-    NodeById _ -> case fromJSON value of
-        Success result -> putSuccess resultvar result
-        Error message  -> putFailure resultvar (JSONError (Text.pack message))
-
+instance FromJSON SomeNeo4jResponse where
+    parseJSON = withObject "BatchResponse" (\o -> do
+        body <- o .: "body"
+        return (SomeNeo4jResponse body))
