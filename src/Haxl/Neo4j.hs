@@ -1,9 +1,12 @@
 {-# LANGUAGE DeriveFunctor,OverloadedStrings #-}
-module Haxl.Neo4j where
+module Haxl.Neo4j (
+    runNeo4j,Neo4j,
+    Node,Direction(..),
+    nodesByLabel,typedEdges,edgeSource) where
 
 import Haxl.Neo4j.Internal (
     runHaxlNeo4j,Haxl,
-    NodeId,Node,EdgeId,Edge,Label,Properties,Direction(All))
+    NodeId,Node,EdgeId,Edge,Label,Properties,Direction(..))
 import qualified Haxl.Neo4j.Internal as Internal (
     nodeById,nodesByLabel,nodeLabels,nodeId,nodeProperties,
     edges,typedEdges,edgeById,
@@ -78,7 +81,9 @@ instance Monad Neo4j where
         bss <- traverse (unNeo4j . amb) as
         return (concat bss))
 
+gather :: Neo4j a -> Neo4j [a]
+gather = Neo4j . fmap (:[]) . unNeo4j
 
-main :: IO ()
-main = runNeo4j (nodeById 5 >>= edges All >>= edgeTarget) >>= print
+scatter :: [a] -> Neo4j a
+scatter = Neo4j . return
 

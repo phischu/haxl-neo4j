@@ -272,6 +272,8 @@ directionText All = "all"
 
 data SomeNeo4jResponse = SomeNeo4jResponse Value
 
+deriving instance Show SomeNeo4jResponse
+
 instance FromJSON SomeNeo4jResponse where
     parseJSON = withObject "BatchResponse" (\o -> do
         body <- o .: "body"

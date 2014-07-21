@@ -36,3 +36,23 @@ library
                        unordered-containers >=0.2.5.0 && <0.3
   hs-source-dirs:      src
   default-language:    Haskell2010
+
+executable  haxl-neo4j
+  main-is:             Haxl/Neo4j/Main.hs
+  build-depends:       base >=4.6 && <4.7,
+                       haxl >=0.1.0.0 && <0.2,
+                       hashable >=1.2.2.0 && <1.3,
+                       pipes-http >=1.0.1 && <1.1,
+                       http-types >=0.8.5 && <0.9,
+                       pipes >=4.1.2 && <4.2,
+                       pipes-aeson >=0.4.1.1 && <0.5,
+                       pipes-parse >=3.0.2 && <3.1,
+                       aeson >=0.7.0.6 && <0.8,
+                       errors >=1.4.7 && <1.5,
+                       text >=1.1.1.3 && <1.2,
+                       bytestring >=0.10.0.2 && <0.11,
+                       blaze-builder >=0.3.3.2 && <0.4,
+                       unordered-containers >=0.2.5.0 && <0.3
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+
