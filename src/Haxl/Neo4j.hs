@@ -80,5 +80,5 @@ instance Monad Neo4j where
 
 
 main :: IO ()
-main = runNeo4j (nodeById 5 >>= edges All) >>= print
+main = runNeo4j (nodeById 5 >>= edges All >>= edgeTarget) >>= print
 

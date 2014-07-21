@@ -119,6 +119,12 @@ instance StateKey Neo4jRequest where
 
 instance Hashable (Neo4jRequest a) where
     hashWithSalt s (NodeById i) = hashWithSalt s (0::Int,i)
+    hashWithSalt s (NodesByLabel l) = hashWithSalt s (1::Int,l)
+    hashWithSalt s (NodesByLabelAndProperty l k v) = hashWithSalt s (2::Int,l,k,v)
+    hashWithSalt s (EdgeById i) = hashWithSalt s (3::Int,i)
+    hashWithSalt s (Edges d i) = hashWithSalt s (4::Int,i)
+    hashWithSalt s (TypedEdges d l i) = hashWithSalt s (5::Int,d,l,i)
+    hashWithSalt s (NodeLabels i) = hashWithSalt s (6::Int,i)
 
 
 -- Neo4j result data types
@@ -218,7 +224,7 @@ writeResult (BlockedFetch neo4request resultvar,SomeNeo4jResponse value) = do
     let result = case neo4request of
             NodeById _ -> fromJSON value
             NodesByLabel _ -> fromJSON value
-            NodesByLabelAndProperty _ _ _-> fromJSON value
+            NodesByLabelAndProperty _ _ _ -> fromJSON value
             EdgeById _ -> fromJSON value
             Edges _ _ -> fromJSON value
             TypedEdges _ _ _ -> fromJSON value
