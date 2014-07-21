@@ -126,7 +126,7 @@ instance Hashable (Neo4jRequest a) where
     hashWithSalt s (NodesByLabel l) = hashWithSalt s (1::Int,l)
     hashWithSalt s (NodesByLabelAndProperty l k v) = hashWithSalt s (2::Int,l,k,v)
     hashWithSalt s (EdgeById i) = hashWithSalt s (3::Int,i)
-    hashWithSalt s (Edges d i) = hashWithSalt s (4::Int,i)
+    hashWithSalt s (Edges d i) = hashWithSalt s (4::Int,d,i)
     hashWithSalt s (TypedEdges d l i) = hashWithSalt s (5::Int,d,l,i)
     hashWithSalt s (NodeLabels i) = hashWithSalt s (6::Int,i)
 
