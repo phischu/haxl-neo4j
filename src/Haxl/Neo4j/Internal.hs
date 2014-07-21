@@ -91,6 +91,10 @@ data Direction = In | Out | All
 deriving instance Show Direction
 deriving instance Eq Direction
 deriving instance Typeable Direction
+instance Hashable Direction where
+    hashWithSalt s In = hashWithSalt s (0::Int)
+    hashWithSalt s Out = hashWithSalt s (1::Int)
+    hashWithSalt s All = hashWithSalt s (2::Int)
 
 data Neo4jRequest a where
     NodeById :: NodeId -> Neo4jRequest Node
